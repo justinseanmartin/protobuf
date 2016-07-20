@@ -63,6 +63,7 @@ class FileGenerator {
 
   const string& RootClassName() const { return root_class_name_; }
   const string Path() const { return FilePath(file_); }
+  const string RelativePath(const FileDescriptor *relative_to_path) const { return FilePathRelative(file_, relative_to_path); }
   const FileDescriptor* Descriptor() const { return file_; }
 
   bool IsPublicDependency() const { return is_public_dep_; }

@@ -62,7 +62,7 @@ class ImportWriter {
       : options_(options),
         need_to_parse_mapping_file_(true) {}
 
-  void AddFile(const FileGenerator* file);
+  void AddFile(const FileGenerator* file, const FileGenerator* source_file);
   void Print(io::Printer *printer) const;
 
  private:
@@ -78,6 +78,7 @@ class ImportWriter {
   };
 
   void ParseFrameworkMappings();
+  string ModuleForFile(const FileDescriptor* file);
 
   const Options options_;
   map<string, string> proto_file_to_framework_name_;
@@ -89,7 +90,10 @@ class ImportWriter {
   vector<string> other_imports_;
 };
 
-void ImportWriter::AddFile(const FileGenerator* file) {
+// `file` represents the file being added to the set of imports
+// `source_file` represents the file that is being added to
+// The `source_file` should only be supplied for generating .m files.
+void ImportWriter::AddFile(const FileGenerator* file, const FileGenerator* source_file) {
   const FileDescriptor* file_descriptor = file->Descriptor();
   const string extension(".pbobjc.h");
 
@@ -105,23 +109,46 @@ void ImportWriter::AddFile(const FileGenerator* file) {
     ParseFrameworkMappings();
   }
 
-  map<string, string>::iterator proto_lookup =
-      proto_file_to_framework_name_.find(file_descriptor->name());
-  if (proto_lookup != proto_file_to_framework_name_.end()) {
-    other_framework_imports_.push_back(
-        proto_lookup->second + "/" +
-        FilePathBasename(file_descriptor) + extension);
-    return;
+  // Framework import rules:
+  //  - Use "" when the module for the target import is not mapped
+  //  - Use "" in source files when the target and source are in the same module
+  //  - Use <> in source files when the target is in a different module
+  //  - Use <> in all header files
+  string target_module = ModuleForFile(file_descriptor);
+  if (!target_module.empty()) {
+    bool add_as_framework = true;
+
+    if (source_file) {
+      string source_module = ModuleForFile(source_file->Descriptor());
+      add_as_framework = (source_module.compare(target_module) != 0);
+    }
+
+    if (add_as_framework) {
+      // Import being added to header file
+      string import_path = target_module + "/" + file->Path() + extension;
+      other_framework_imports_.push_back(import_path);
+      return;
+    }
   }
 
   if (!options_.generate_for_named_framework.empty()) {
-    other_framework_imports_.push_back(
-        options_.generate_for_named_framework + "/" +
-        FilePathBasename(file_descriptor) + extension);
-    return;
+    // If everything is going in a single framework, use local imports for source files
+    if (!source_file) {
+      other_framework_imports_.push_back(
+          options_.generate_for_named_framework + "/" +
+          file->Path() + extension);
+      return;
+    }
   }
 
-  other_imports_.push_back(file->Path() + extension);
+  string relative_path;
+  if (source_file) {
+    relative_path = file->RelativePath(source_file->Descriptor()) + extension;
+  } else {
+    relative_path = file->Path() + extension;
+  }
+
+  other_imports_.push_back(relative_path);
 }
 
 void ImportWriter::Print(io::Printer* printer) const {
@@ -201,6 +228,21 @@ void ImportWriter::ParseFrameworkMappings() {
          << " : " << parse_error << endl;
     cerr.flush();
   }
+}
+
+string ImportWriter::ModuleForFile(const FileDescriptor* file) {
+  if (!file) {
+    return "";
+  }
+
+  map<string, string>::iterator proto_lookup =
+    proto_file_to_framework_name_.find(file->name());
+
+  if (proto_lookup != proto_file_to_framework_name_.end()) {
+    return proto_lookup->second;
+  }
+
+  return "";
 }
 
 bool ImportWriter::ProtoFrameworkCollector::ConsumeLine(
@@ -305,7 +347,7 @@ void FileGenerator::GenerateHeader(io::Printer *printer) {
              dependency_generators.begin();
          iter != dependency_generators.end(); ++iter) {
       if ((*iter)->IsPublicDependency()) {
-        import_writer.AddFile(*iter);
+        import_writer.AddFile(*iter, NULL);
       }
     }
     import_writer.Print(printer);
@@ -408,7 +450,7 @@ void FileGenerator::GenerateSource(io::Printer *printer) {
     ImportWriter import_writer(options_);
 
     // #import the header for this proto file.
-    import_writer.AddFile(this);
+    import_writer.AddFile(this, this);
 
     // #import the headers for anything that a plain dependency of this proto
     // file (that means they were just an include, not a "public" include).
@@ -418,7 +460,7 @@ void FileGenerator::GenerateSource(io::Printer *printer) {
              dependency_generators.begin();
          iter != dependency_generators.end(); ++iter) {
       if (!(*iter)->IsPublicDependency()) {
-        import_writer.AddFile(*iter);
+        import_writer.AddFile(*iter, this);
       }
     }
 

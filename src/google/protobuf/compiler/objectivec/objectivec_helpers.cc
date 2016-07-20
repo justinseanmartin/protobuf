@@ -324,6 +324,30 @@ string FilePath(const FileDescriptor* file) {
   return output;
 }
 
+bool IsDirectoryPrefixMatch(string fullString, string prefixString) {
+  prefixString += "/";
+  pair<string::iterator,string::iterator> res =
+    std::mismatch(prefixString.begin(), prefixString.end(), fullString.begin());
+  return (res.first == prefixString.end());
+}
+
+string FilePathRelative(const FileDescriptor* file, const FileDescriptor* relative_to_path) {
+  string output;
+  string directory;
+
+  PathSplit(relative_to_path->name(), &directory, NULL);
+
+  while (directory.length() > 0 && !IsDirectoryPrefixMatch(file->name(), directory)) {
+    output += "../";
+    string copy = directory;
+    PathSplit(copy, &directory, NULL);
+  }
+
+  output += FilePath(file).substr(directory.length() + 1);
+
+  return output;
+}
+
 string FilePathBasename(const FileDescriptor* file) {
   string output;
   string basename;

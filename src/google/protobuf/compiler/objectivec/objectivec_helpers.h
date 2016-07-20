@@ -72,6 +72,16 @@ bool IsInitName(const string& name);
 // declared in the proto package.
 string FilePath(const FileDescriptor* file);
 
+// Gets the path of the file we're going to generate (sans the .pb.h
+// extension).  This path will be relative to the second proto file supplied.
+// The implementation is very naive, in that it ignores file system constructs
+// such as symlinks.
+//
+// Example:
+// Input: file = root/proto1/some.proto, relative_to_path = root/proto2/other.proto
+// Output: "../some.proto"
+string FilePathRelative(const FileDescriptor* file, const FileDescriptor* relative_to_path);
+
 // Just like FilePath(), but without the directory part.
 string FilePathBasename(const FileDescriptor* file);
 
